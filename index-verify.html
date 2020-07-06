@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试百度云活体检测API</title>
+</head>
+
+<body style="text-align: center;">
+    <video id="video" width="800" height="500" style="border: 1px solid #00000080;"></video>
+    <div>
+        <p id="code"></p>
+        <button id="record">开始录制</button>
+    </div>
+    <div>
+        <p>检测结果:</p>
+        <textarea id="result" style="width: 800px; height: 150px;"></textarea>
+    </div>
+    <div>
+        <section id="soundClips">
+        </section>
+    </div>
+    <script>
+        let started = false;
+        let code = "";
+        let session_id = "";
+        let video_base64 = "";
+        function ajax(method, url, params, body, headers = []) {
+            return new Promise((resolve, reject) => {
+                const http = new XMLHttpRequest();
+                if (params) {
+                    for (const key in params) {
+                        if (params.hasOwnProperty(key)) {
+                            url += `${key}=${params[key]}&`;
+                        }
+                    }
+                }
+                url = url.slice(0, -1);
+                http.open(method, url);
+                if (headers && headers.length) {
+                    headers.forEach(header => {
+                        console.log(header);
+                        http.setRequestHeader(header[0], header[1]);
+                    });
+                }
+                if (body.video_base64) {
+                    http.send("video_base64=" + body.video_base64);
+                } else {
+
+                    http.send(JSON.stringify(body));
+                }
+                http.onload = resolve;
+                http.onerror = reject;
+            })
+        }
+        function visualize(stream) {
+            video.srcObject = stream;
+            video.play();
+        }
+        function getMedia() {
+            if (navigator.mediaDevices) {
+                console.log('getUserMedia supported.');
+
+                var constraints = { audio: false, video: true };
+                var chunks = [];
+
+                navigator.mediaDevices.getUserMedia(constraints)
+                    .then(function (stream) {
+
+                        var mediaRecorder = new MediaRecorder(stream);
+
+                        visualize(stream);
+
+                        record.onclick = function () {
+                            if (started) return;
+                            console.log('start');
+                            mediaRecorder.start();
+                            console.log(mediaRecorder.state);
+                            console.log("recorder started");
+                            record.style.background = "red";
+                            record.style.color = "black";
+                            started = true;
+                            // 只录制6s
+                            let timer = setTimeout(() => {
+                                console.log('end');
+                                clearTimeout(timer);
+                                started = false;
+                                mediaRecorder.stop();
+                            }, 6000);
+                        }
+
+                        mediaRecorder.onstop = function (e) {
+                            console.log("data available after MediaRecorder.stop() called.");
+
+                            var blob = new Blob(chunks, { 'type': 'audio/mp4' });
+                            chunks = [];
+                            var reader = new FileReader();
+                            reader.readAsDataURL(blob);
+                            reader.onload = () => {
+                                console.log(reader.result);
+                                video_base64 = reader.result.replace('data:audio/mp4;base64,', '');
+                                verify().then((data) => {
+                                    console.log(data.target.response);
+                                }).catch((err) => {
+                                    console.log(err);
+                                });
+                                console.log("recorder stopped");
+                            }
+                        }
+
+                        mediaRecorder.ondataavailable = function (e) {
+                            chunks.push(e.data);
+                        }
+                    })
+                    .catch(function (err) {
+                        console.log('The following error occured: ' + err);
+                    })
+            }
+        }
+        function getSessionCode() {
+            return ajax(
+                'POST',
+                'https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/sessioncode?',
+                { 'access_token': '24.99fdfb2cb18e4b89c10bbd64ecd0e47c.2592000.1596423764.282335-21007713' },
+                { 'appid': '21007713' },
+                [['Content-Type', 'application/x-www-form-urlencoded']]
+            );
+        }
+        function verify() {
+            return ajax(
+                'POST',
+                'https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/verify?',
+                { 'access_token': '24.99fdfb2cb18e4b89c10bbd64ecd0e47c.2592000.1596423764.282335-21007713' },
+                { 'session_id': session_id, 'video_base64': video_base64 },
+                [['Content-Type', 'application/x-www-form-urlencoded']]
+            )
+        }
+        getSessionCode().then((data) => {
+            let response = JSON.parse(data.target.response);
+            if (response && response.result) {
+                code = response.result.code;
+                session_id = response.result.session_id;
+                document.getElementById('code').innerHTML = `请大声朗读以下数字：${code}`;
+                getMedia();
+            }
+        }).catch((err) => {
+            console.log(err);
+            code = "";
+            session_id = "";
+        })
+
+    </script>
+</body>
+
+</html>
