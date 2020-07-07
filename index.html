@@ -4,76 +4,143 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>调试百度云人脸识别API</title>
+    <title>调试百度云活体检测API</title>
 </head>
 
 <body style="text-align: center;">
-    <video id="video" width="800" height="500"></video>
-    <canvas id="canvas" width="800" height="500" style="display: none;"></canvas>
-    <div>
-        <p>result:</p>
-        <textarea id="result" style="width: 800px; height: 150px;"></textarea>
+    <div style="display: flex;">
+        <div>
+            <p>活体检测（测试）</p>
+            <video id="video" width="800" height="500" style="border: 1px solid #00000080;"></video>
+            <div>
+                <p id="code">请大声朗读以下数字：</p>
+                <button id="record">开始录制</button>
+            </div>
+        </div>
+        <div style="margin-left: 1rem;">
+            <div>
+                <p>检测结果:</p>
+                <textarea id="result" style="width: 1000px; height: 800px;"></textarea>
+            </div>
+        </div>
     </div>
-
+    <script src="./jquery-3.5.1.min.js"></script>
     <script>
-        navigator.getMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMeddia || navigator.msGetUserMedia;
-        let timer;
-        if (navigator.getMedia) {
-            navigator.getMedia({
-                video: true
-            }, function (stream) {
-                console.log(stream);
-                mediaStreamTrack = stream.getTracks()[0];
+        let started = false;
+        let code = "";
+        let session_id = "";
+        let video_base64 = "";
+        let access_token = "24.99fdfb2cb18e4b89c10bbd64ecd0e47c.2592000.1596423764.282335-21007713";
+        let count = 6;
+        function visualize(stream) {
+            video.srcObject = stream;
+            video.play();
+        }
+        function getMedia() {
+            if (navigator.mediaDevices) {
+                console.log('getUserMedia supported.');
 
-                video.srcObject = stream;
-                video.play();
+                var constraints = { audio: true, video: true };
+                var chunks = [];
 
-                // todo 获取access_token
-                getToken('CSdpeQeIaktz4tKCsxI7bie6', 'CM0SwK4UNG9vHpmoj10KOGKAlpvSHHji');
+                navigator.mediaDevices.getUserMedia(constraints)
+                    .then(function (stream) {
 
-                // todo 人脸验证
-                verify('24.99fdfb2cb18e4b89c10bbd64ecd0e47c.2592000.1596423764.282335-21007713', ['baoguo_ma_001'], '001');
-            }, function (err) {
-                console.log('请检查此设备是否支持摄像头功能', err);
+                        var mediaRecorder = new MediaRecorder(stream);
+
+                        visualize(stream);
+
+                        record.onclick = function () {
+                            if (started) return;
+                            console.log(mediaRecorder.state);
+                            console.log("recorder started");
+                            mediaRecorder.start();
+                            record.innerHTML = `正在录制(${count}s)...`;
+                            record.disabled = true;
+                            started = true;
+                            // 只录制6s
+                            let inter = setInterval(() => {
+                                count--;
+                                record.innerHTML = `正在录制(${count}s)...`;
+                            }, 1000)
+                            let timer = setTimeout(() => {
+                                console.log('end');
+                                clearTimeout(timer);
+                                started = false;
+                                mediaRecorder.stop();
+                                count = 6;
+                                clearInterval(inter);
+                            }, 6000);
+                        }
+
+                        mediaRecorder.onstop = function (e) {
+                            console.log("data available after MediaRecorder.stop() called.");
+                            record.innerHTML = "开始录制";
+                            record.disabled = false;
+
+                            var blob = new Blob(chunks, { 'type': 'audio/mp4' });
+                            chunks = [];
+                            var reader = new FileReader();
+                            reader.readAsDataURL(blob);
+                            reader.onload = () => {
+                                console.log(reader.result);
+                                video_base64 = reader.result.replace('data:audio/mp4;base64,', '');
+                                verify().then((response) => {
+                                    console.log(response);
+                                    result.innerHTML = JSON.stringify(response, null, 2);
+                                }).catch((err) => {
+                                    console.log(err);
+                                });
+                                console.log("recorder stopped");
+                            }
+                        }
+
+                        mediaRecorder.ondataavailable = function (e) {
+                            chunks.push(e.data);
+                        }
+                    })
+                    .catch(function (err) {
+                        console.log('The following error occured: ' + err);
+                    })
+            } else {
+                console.log('navigator.mediaDevices not supported.')
+            }
+        }
+        function getSessionCode() {
+            return new Promise((resolve, reject) => {
+                $.post(`https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/sessioncode?access_token=${access_token}`,
+                    {
+                        max_code_length: 4
+                    },
+                    function (data, status) {
+                        resolve(data);
+                    });
             });
         }
-        // clien_id: CSdpeQeIaktz4tKCsxI7bie6
-        // client_secret: CM0SwK4UNG9vHpmoj10KOGKAlpvSHHji
-        function getToken(client_id, client_secret, success = null, fail = null) {
-            const http = new XMLHttpRequest();
-            http.open('POST', `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${client_id}&client_secret=${client_secret}`);
-            http.send();
-            http.onload = function (e) {
-                console.log(http.response);
-            }
+        function verify() {
+            return new Promise((resolve, reject) => {
+                $.post(`https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/verify?access_token=${access_token}`,
+                    {
+                        video_base64: video_base64,
+                        session_id: session_id
+                    },
+                    function (data, status) {
+                        resolve(data);
+                    });
+            });
         }
-        function verify(access_token, group_id_list, user_id, success = null, failed = null) {
-            if (access_token && group_id_list.length && user_id) {
-                // 开启定时器，每5秒进行一次验证
-                timer = setInterval(() => {
-                    // clearInterval(timer);
-                    // 绘制截图，获取截图的base64
-                    const context = canvas.getContext("2d");
-                    context.drawImage(video, 0, 0, 800, 500);
-                    const base64 = canvas.toDataURL('image/png');
-                    const base64_noHead = base64.replace('data:image/png;base64,', '');
-
-                    // 发送ajax，验证人脸
-                    const http = new XMLHttpRequest();
-                    http.open('POST', `https://aip.baidubce.com/rest/2.0/face/v3/search?access_token=${access_token}`);
-                    http.send(JSON.stringify({
-                        "image": base64_noHead,
-                        "image_type": "BASE64",
-                        "group_id_list": group_id_list.toString(),
-                        "user_id": user_id
-                    }));
-                    http.onload = function (e) {
-                        // 80分以上即是同一个人
-                        result.innerHTML = http.response;
-                    }
-                }, 5000)
+        getSessionCode().then((response) => {
+            if (response && response.result) {
+                code = response.result.code;
+                session_id = response.result.session_id;
+                document.getElementById('code').innerHTML = `请大声朗读以下数字：${code}`;
+                getMedia();
             }
-        }
+        }).catch((err) => {
+            console.log(err);
+            code = "";
+            session_id = "";
+        })
     </script>
 </body>
 

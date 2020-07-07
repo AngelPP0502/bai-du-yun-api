@@ -1,0 +1,82 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试百度云人脸识别API</title>
+</head>
+
+<body style="text-align: center;">
+    <video id="video" width="800" height="500"></video>
+    <canvas id="canvas" width="800" height="500" style="display: none;"></canvas>
+    <div>
+        <p>result:</p>
+        <textarea id="result" style="width: 800px; height: 150px;"></textarea>
+    </div>
+
+    <script>
+        navigator.getMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMeddia || navigator.msGetUserMedia;
+        let timer;
+        if (navigator.getMedia) {
+            navigator.getMedia({
+                video: true
+            }, function (stream) {
+                console.log(stream);
+                mediaStreamTrack = stream.getTracks()[0];
+
+                video.srcObject = stream;
+                video.play();
+
+                // todo 获取access_token
+                getToken('CSdpeQeIaktz4tKCsxI7bie6', 'CM0SwK4UNG9vHpmoj10KOGKAlpvSHHji');
+
+                // todo 人脸验证
+                verify('24.99fdfb2cb18e4b89c10bbd64ecd0e47c.2592000.1596423764.282335-21007713', ['baoguo_ma_001'], '001');
+            }, function (err) {
+                console.log('请检查此设备是否支持摄像头功能', err);
+            });
+        }else{
+            console.log('请检查此设备是否支持摄像头功能');
+        }
+        // clien_id: CSdpeQeIaktz4tKCsxI7bie6
+        // client_secret: CM0SwK4UNG9vHpmoj10KOGKAlpvSHHji
+        function getToken(client_id, client_secret, success = null, fail = null) {
+            const http = new XMLHttpRequest();
+            http.open('POST', `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${client_id}&client_secret=${client_secret}`);
+            http.send();
+            http.onload = function (e) {
+                console.log(http.response);
+            }
+        }
+        function verify(access_token, group_id_list, user_id, success = null, failed = null) {
+            if (access_token && group_id_list.length && user_id) {
+                // 开启定时器，每5秒进行一次验证
+                timer = setInterval(() => {
+                    // clearInterval(timer);
+                    // 绘制截图，获取截图的base64
+                    const context = canvas.getContext("2d");
+                    context.drawImage(video, 0, 0, 800, 500);
+                    const base64 = canvas.toDataURL('image/png');
+                    const base64_noHead = base64.replace('data:image/png;base64,', '');
+
+                    // 发送ajax，验证人脸
+                    const http = new XMLHttpRequest();
+                    http.open('POST', `https://aip.baidubce.com/rest/2.0/face/v3/search?access_token=${access_token}`);
+                    http.send(JSON.stringify({
+                        "image": base64_noHead,
+                        "image_type": "BASE64",
+                        "group_id_list": group_id_list.toString(),
+                        "user_id": user_id
+                    }));
+                    http.onload = function (e) {
+                        // 80分以上即是同一个人
+                        result.innerHTML = http.response;
+                    }
+                }, 5000)
+            }
+        }
+    </script>
+</body>
+
+</html>
