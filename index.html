@@ -19,7 +19,7 @@
         </div>
         <div style="margin-left: 1rem;">
             <div>
-                <p>检测结果:</p>
+                <p>检测结果</p>
                 <textarea id="result" style="width: 1000px; height: 800px;"></textarea>
             </div>
         </div>
@@ -31,16 +31,24 @@
         let session_id = "";
         let video_base64 = "";
         let access_token = "24.99fdfb2cb18e4b89c10bbd64ecd0e47c.2592000.1596423764.282335-21007713";
+        let base64_passed = "";
+        let group_id_list = ["baoguo_ma_001"];
+        let user_id = "001"
         let count = 6;
+
         function visualize(stream) {
             video.srcObject = stream;
             video.play();
         }
+
         function getMedia() {
             if (navigator.mediaDevices) {
                 console.log('getUserMedia supported.');
 
-                var constraints = { audio: true, video: true };
+                var constraints = {
+                    audio: true,
+                    video: true
+                };
                 var chunks = [];
 
                 navigator.mediaDevices.getUserMedia(constraints)
@@ -78,7 +86,9 @@
                             record.innerHTML = "开始录制";
                             record.disabled = false;
 
-                            var blob = new Blob(chunks, { 'type': 'audio/mp4' });
+                            var blob = new Blob(chunks, {
+                                'type': 'audio/mp4'
+                            });
                             chunks = [];
                             var reader = new FileReader();
                             reader.readAsDataURL(blob);
@@ -87,7 +97,38 @@
                                 video_base64 = reader.result.replace('data:audio/mp4;base64,', '');
                                 verify().then((response) => {
                                     console.log(response);
-                                    result.innerHTML = JSON.stringify(response, null, 2);
+                                    let code_passed = response.err_no === 0 && response.result.code.similarity > 0.75;
+                                    let living_passed = response.err_no === 0 && response.result.score > 0.5;
+                                    result.innerHTML =
+                                        `验证码：${code_passed ? '通过' : '未通过'}，活体：${living_passed ? '通过' : '未通过'}\r\n${JSON.stringify(response, null, 2)}`;
+                                    if(code_passed && living_passed && response.result.pic_list.length){
+                                        for(let i = 0; i< response.result.pic_list.length;i++){
+                                            let pic = response.result.pic_list[i];
+                                            if(pic.liveness_score > 0.95){
+                                                base64_passed = pic.pic;
+                                                search().then((response) => {
+                                                    console.log(response);
+                                                    let face_passed = false;
+                                                    if(response.user_list && response.user_list.length){
+                                                        for (let j = 0; j < response.user_list.length; j++) {
+                                                            let user = response.user_list[j];
+                                                            if(user.score > 80){
+                                                                face_passed = true;
+                                                                result.innerHTML = `人脸认证：通过\r\n${result.innerHTML}`;
+                                                            }
+                                                            break;
+                                                        }
+                                                    }
+                                                    if(!face_passed){
+                                                        result.innerHTML = `人脸认证：未通过\r\n${result.innerHTML}`;
+                                                    }
+                                                }).catch(err => {
+                                                    console.log(err);
+                                                });
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }).catch((err) => {
                                     console.log(err);
                                 });
@@ -106,24 +147,38 @@
                 console.log('navigator.mediaDevices not supported.')
             }
         }
+
         function getSessionCode() {
             return new Promise((resolve, reject) => {
-                $.post(`https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/sessioncode?access_token=${access_token}`,
-                    {
-                        max_code_length: 4
-                    },
+                $.post(`https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/sessioncode?access_token=${access_token}`, {
+                    max_code_length: 4
+                },
                     function (data, status) {
                         resolve(data);
                     });
             });
         }
+
         function verify() {
             return new Promise((resolve, reject) => {
-                $.post(`https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/verify?access_token=${access_token}`,
-                    {
-                        video_base64: video_base64,
-                        session_id: session_id
-                    },
+                $.post(`https://aip.baidubce.com/rest/2.0/face/v1/faceliveness/verify?access_token=${access_token}`, {
+                    video_base64: video_base64,
+                    session_id: session_id
+                },
+                    function (data, status) {
+                        resolve(data);
+                    });
+            });
+        }
+
+        function search() {
+            return new Promise((resolve, reject) => {
+                $.post(`https://aip.baidubce.com/rest/2.0/face/v3/search?access_token=${access_token}`, {
+                    "image": base64_passed,
+                    "image_type": "BASE64",
+                    "group_id_list": group_id_list.toString(),
+                    "user_id": user_id
+                },
                     function (data, status) {
                         resolve(data);
                     });
